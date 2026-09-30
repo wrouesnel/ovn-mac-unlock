@@ -1,0 +1,99 @@
+# Clears OVN port_security and adds "unknown" to addresses on the logical switch
+# port of every pod labelled ovn-mac-unlock=true.
+#
+# The ConfigMap is generated from ovn-mac-unlock.sh by kustomization.yaml - apply with:
+#   kubectl apply -k .
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ovn-mac-unlock
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ovn-mac-unlock
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ovn-mac-unlock
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ovn-mac-unlock
+subjects:
+  - kind: ServiceAccount
+    name: ovn-mac-unlock
+    namespace: kube-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ovn-mac-unlock
+  namespace: kube-system
+  labels:
+    app: ovn-mac-unlock
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: ovn-mac-unlock
+  template:
+    metadata:
+      labels:
+        app: ovn-mac-unlock
+    spec:
+      serviceAccountName: ovn-mac-unlock
+      priorityClassName: system-cluster-critical
+      # Like kube-ovn-controller: don't depend on the pod network we're configuring.
+      hostNetwork: true
+      nodeSelector:
+        kubernetes.io/os: linux
+      tolerations:
+        - key: CriticalAddonsOnly
+          operator: Exists
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: ovn-mac-unlock
+          # Use the same image/tag as your kube-ovn-controller.
+          image: docker.io/kubeovn/kube-ovn:v1.14.10
+          command: ["/bin/bash", "/opt/ovn-mac-unlock/ovn-mac-unlock.sh"]
+          env:
+            - name: LABEL_SELECTOR
+              value: ovn-mac-unlock=true
+            - name: INTERVAL
+              value: "10"
+            # auto: try tcp, fall back to ssl with the kube-ovn-tls certs. Or pin "true"/"false".
+            - name: ENABLE_SSL
+              value: auto
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          volumeMounts:
+            - name: script
+              mountPath: /opt/ovn-mac-unlock
+              readOnly: true
+            - name: kube-ovn-tls
+              mountPath: /var/run/tls
+              readOnly: true
+      volumes:
+        - name: script
+          configMap:
+            name: ovn-mac-unlock
+        - name: kube-ovn-tls
+          secret:
+            secretName: kube-ovn-tls
+            # Only exists when kube-ovn was installed with SSL.
+            optional: true
