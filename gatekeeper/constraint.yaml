@@ -1,0 +1,19 @@
+# Only pods in namespaces labelled ovn-mac-unlock=true may carry the ovn-mac-unlock pod label,
+# so turning off MAC filtering takes permission to label namespaces, not just pods.
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: OvnMacUnlockRestricted
+metadata:
+  name: ovn-mac-unlock
+spec:
+  enforcementAction: deny
+  match:
+    kinds:
+      - apiGroups: [""]
+        kinds: ["Pod"]
+    namespaceSelector:
+      matchExpressions:
+        - key: ovn-mac-unlock
+          operator: NotIn
+          values: ["true"]
+  parameters:
+    label: ovn-mac-unlock

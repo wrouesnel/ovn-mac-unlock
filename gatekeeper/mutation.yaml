@@ -1,0 +1,20 @@
+# Adds ovn-mac-unlock=true to pods created in namespaces labelled ovn-mac-unlock=true.
+# The pod label must match LABEL_SELECTOR on the controller. Existing pods are only labelled when
+# they're recreated.
+apiVersion: mutations.gatekeeper.sh/v1
+kind: AssignMetadata
+metadata:
+  name: ovn-mac-unlock
+spec:
+  match:
+    scope: Namespaced
+    kinds:
+      - apiGroups: [""]
+        kinds: ["Pod"]
+    namespaceSelector:
+      matchLabels:
+        ovn-mac-unlock: "true"
+  location: 'metadata.labels."ovn-mac-unlock"'
+  parameters:
+    assign:
+      value: "true"

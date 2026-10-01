@@ -1,0 +1,32 @@
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: ovnmacunlockrestricted
+  annotations:
+    description: >-
+      Denies adding the given label to a pod. Scope it with the Constraint's namespaceSelector to
+      the namespaces where the label is not allowed.
+spec:
+  crd:
+    spec:
+      names:
+        kind: OvnMacUnlockRestricted
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            label:
+              type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package ovnmacunlockrestricted
+
+        # Only when the label is being added, so already-labelled pods can still be updated
+        # (e.g. finalizers removed) after their namespace is opted out.
+        violation[{"msg": msg}] {
+          label := input.parameters.label
+          input.review.object.metadata.labels[label]
+          not input.review.oldObject.metadata.labels[label]
+          msg := sprintf("pod label %v is only allowed in namespaces labelled %v=true", [label, label])
+        }

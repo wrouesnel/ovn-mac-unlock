@@ -1,0 +1,14 @@
+# Gatekeeper rules that make a namespace label the switch for ovn-mac-unlock:
+#   kubectl label namespace <ns> ovn-mac-unlock=true
+#
+# - mutation.yaml:  labels new pods in those namespaces ovn-mac-unlock=true.
+# - constraint.yaml: denies setting the pod label anywhere else.
+#
+# The Constraint needs the ConstraintTemplate's CRD first, so on a fresh install apply twice:
+#   kubectl apply -k gatekeeper/
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - mutation.yaml
+  - constraint-template.yaml
+  - constraint.yaml

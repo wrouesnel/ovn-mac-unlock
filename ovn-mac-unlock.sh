@@ -1,5 +1,6 @@
 #!/bin/bash
-# Reconciles OVN logical switch ports for pods matching LABEL_SELECTOR so that:
+# Reconciles the OVN logical switch ports of pods matching LABEL_SELECTOR - the primary interface
+# and any Kube-OVN Multus attachments - so that:
 #   - port_security is empty (no source MAC/IP filtering)
 #   - "unknown" is in addresses (frames to MACs other than the pod's own are delivered, FDB learning on)
 # kube-ovn-controller resets these on pod updates/resync, so we re-check every INTERVAL seconds.
@@ -83,19 +84,31 @@ reconcile_lsp() {
   fi
 }
 
+# One line per Kube-OVN-allocated interface: "<pod> <namespace> <annotation key>".
+# Kube-OVN sets <provider>.kubernetes.io/allocated=true for each interface it allocates: provider
+# "ovn" for the primary interface, "<nad>.<nad-ns>.ovn" (or a custom *.ovn) for Multus attachments.
+POD_TEMPLATE='{{range .items}}{{if .spec.nodeName}}{{$name := .metadata.name}}{{$ns := .metadata.namespace}}'\
+'{{range $k, $v := .metadata.annotations}}{{if eq $v "true"}}{{$name}} {{$ns}} {{$k}}{{"\n"}}{{end}}{{end}}{{end}}{{end}}'
+
 reconcile_all() {
-  local pods lsp
+  local pods name ns key provider
   if ! nbctl get NB_Global . _uuid >/dev/null 2>&1; then
     log "ERROR: lost connection to NB, reconnecting"
     return 1
   fi
-  if ! pods=$(kubectl get pods -A -l "$LABEL_SELECTOR" \
-      -o jsonpath='{range .items[?(@.spec.nodeName)]}{.metadata.name}.{.metadata.namespace}{"\n"}{end}'); then
+  if ! pods=$(kubectl get pods -A -l "$LABEL_SELECTOR" -o go-template="$POD_TEMPLATE"); then
     log "ERROR: listing pods with selector $LABEL_SELECTOR failed"
     return 1
   fi
-  while IFS= read -r lsp; do
-    [[ -n $lsp ]] && reconcile_lsp "$lsp"
+  while read -r name ns key; do
+    [[ $key == *.kubernetes.io/allocated ]] || continue
+    provider=${key%.kubernetes.io/allocated}
+    case $provider in
+      ovn)   reconcile_lsp "$name.$ns" ;;
+      *.ovn) reconcile_lsp "$name.$ns.$provider" ;;
+      # Kube-OVN IPAM only (e.g. macvlan): no logical switch port.
+      *)     ;;
+    esac
   done <<< "$pods"
 }
 
